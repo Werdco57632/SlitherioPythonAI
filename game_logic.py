@@ -31,8 +31,8 @@ def generate_spaced_point(existing_objects: list, bounds: tuple[tuple[float, flo
         # Find the distance to the closest existing point
         min_dist_to_existing = float('inf')
         for obj in existing_objects:
-            # Standard Euclidean distance formula (squared distance works too and is faster)
-            dist = math.hypot(candidate[0] - obj.x, candidate[1] - obj.y)
+            # squared distance works in place of euclidian distance and is faster
+            dist = (candidate[0] - obj.x)**2 + (candidate[1] - obj.y)**2
             if dist < min_dist_to_existing:
                 min_dist_to_existing = dist
                 
@@ -48,16 +48,19 @@ def generate_spaced_point(existing_objects: list, bounds: tuple[tuple[float, flo
 
 
 class Food:
-    def __init__(self, game, x, y, size):
+    def __init__(self, game, state, x, y, size, color=(255,0,0)):
         self.game = game
+        self.state = state
         self.x = x
         self.y = y
         self.size = size
+        self.color = color
 
     def update_vacuum(self) -> None:
-        for snake in self.game.snake_list:
+        
+        for snake in self.state.snake_list:
             # Check if the snake's head is close enough to eat this food
-            head_x, head_y = snake.segments[0]
+            head_x, head_y = snake.segment_list[0]
             d_x = head_x - self.x
             d_y = head_y - self.y
             distance = math.hypot(d_x, d_y)
@@ -72,7 +75,7 @@ class Food:
             if distance < (snake.segment_width / 2):
                 # Snake eats the food
                 snake.update_length(snake.length + self.size)
-                self.game.food_list.remove(self)
+                self.state.food_list.remove(self)
                 return
 
 
@@ -86,45 +89,56 @@ class Snake:
     sprint_time = 0
 
     
-    segments = []
 
-    def __init__(self, game, x, y):
+    def __init__(self, game, state, x, y, color=(255,0,0)):
         self.game = game
+        self.state = state
         self.x = x
         self.y = y
 
-        self.segments = [(0,0)] * self.game.min_segments
+        self.color = color
+
+        self.segment_list = [(0,0)] * self.game.min_segments
         self.update_length(self.game.min_length)
+
     
 
 
-    def update_length(self, new_length) -> None:
+    def update_length(self, new_length) -> None | tuple[float, float]:
         self.length = new_length
-        segments_old = self.segments
+        self.segments = len(self.segment_list)
+        num_segments_old = self.segments
 
         self.segments = (new_length - self.game.min_segments) * self.game.growthrate_segments + self.game.min_segments
         self.segment_width = (new_length - self.game.min_segment_width) * self.game.growthrate_segment_width + self.game.min_segment_width
         self.turning_speed = (new_length - self.game.min_turning_speed) * self.game.growthrate_turning_speed + self.game.min_turning_speed
         self.speed = (new_length - self.game.min_speed) * self.game.growthrate_speed + self.game.min_speed
 
-        if (segments_old < self.segments): # grew
-            self.segments.append(self.segments[-1])
+        tail_segment = self.segment_list[-1]
 
-        elif (segments_old > self.segments): # shrunk
+        if (num_segments_old < self.segments): # grew
+            self.segment_list.append(self.segment_list[-1])
+
+        elif (num_segments_old > self.segments): # shrunk
+            self.segment_list.pop()
+
+        return tail_segment
             
-            removed_segment = self.segments.pop()
-            if (removed_segment and random.random() < self.game.death_drop_chance):
-                self.game.create_food(removed_segment[0], removed_segment[1], 1) # drop the segment as food (with chance)
         
 
 
     def update_position(self, input_turn, input_sprint) -> None:
-        self.heading += math.clamp(input_turn, -self.turning_speed, self.turning_speed)
+        self.update_length(self.length)
+        
+        clamped_turn = max(-self.turning_speed, min(self.turning_speed, input_turn))
+        self.heading += clamped_turn
         self.heading = self.heading % 360
 
         if (input_sprint and self.length > self.game.min_length and self.sprint_time <= 0):
             self.sprint_time = self.game.sprint_per_length
-            self.update_length(self.length - 1) # lose length when sprinting
+            tail_segment = self.update_length(self.length - 1) # lose length when sprinting
+            if (tail_segment and random.random() < self.game.sprint_drop_chance):
+                self.state.create_food(tail_segment[0], tail_segment[1], 1, color=self.color) # drop the segment as food (with chance)
 
         if (self.sprint_time > 0):
             self.sprint_time -= 1
@@ -132,9 +146,9 @@ class Snake:
 
 
         # determine new head position
-        speed = self.game.speed_sprint if self.sprint_time > 0 else self.game.speed_base
-        new_x = self.x + speed * math.cos(math.radians(self.heading))
-        new_y = self.y + speed * math.sin(math.radians(self.heading))
+        adjusted_speed = self.speed * self.game.sprint_multiplier if self.sprint_time > 0 else self.speed
+        new_x = self.x + adjusted_speed * math.cos(math.radians(self.heading))
+        new_y = self.y + adjusted_speed * math.sin(math.radians(self.heading))
 
 
 
@@ -143,20 +157,23 @@ class Snake:
             self.kill_self(drop_food=False) # don't drop food if you leave the map
             return
 
-        collision_snake = self.game.snake_collision_check(new_x, new_y, self.segment_width / 2, exclude_snake=self)
-        if (collision_snake):
+        collision_snake = self.state.snake_collision_check(new_x, new_y, self.segment_width / 2, exclude_snake=self)
+        if (collision_snake != None):
             self.kill_self()
             return
 
 
+        # passed collision checks
+        self.x = new_x
+        self.y = new_y
 
         # move each piece in the chain
-        for i in range(len(self.segments)):
+        for i in range(len(self.segment_list)):
             if (i == 0): # move head
-                self.segments[i] = (new_x, new_y)
+                self.segment_list[i] = (new_x, new_y)
             else:
-                prev_segment = self.segments[i-1]
-                curr_segment = self.segments[i]
+                prev_segment = self.segment_list[i-1]
+                curr_segment = self.segment_list[i]
 
                 # Calculate the distance between the current segment and the previous one
                 dx = prev_segment[0] - curr_segment[0]
@@ -173,7 +190,7 @@ class Snake:
                 new_x = prev_segment[0] - (dx * scale)
                 new_y = prev_segment[1] - (dy * scale)
 
-                self.segments[i] = (new_x, new_y)
+                self.segment_list[i] = (new_x, new_y)
 
 
 
@@ -183,24 +200,27 @@ class Snake:
     def kill_self(self, drop_food=True) -> None:
         
         if (drop_food):
-            food_per_segment = math.floor(self.length / len(self.segments) / self.game.food_size_death * self.game.death_drop_chance)
+            value_to_drop = self.length * self.game.death_drop_chance + self.game.food_bonus
+            food_to_drop = math.floor(value_to_drop / self.game.food_size_death)
             segment_diameter = self.segment_width * self.game.segment_chain_multiplier
 
-            for segment in self.segments:
-                for _ in range(food_per_segment):
-                    self.game.create_food_random(segment[0], segment[1], segment_diameter, segment_diameter, self.game.food_size_death)
+            for _ in range(food_to_drop):
+                random_segment = random.choice(self.segment_list)
+                self.state.create_food_random(random_segment[0], random_segment[1], segment_diameter, segment_diameter, self.game.food_size_death, color=self.color)
         
-        self.game.snake_list.remove(self)
+        self.state.snake_list.remove(self)
 
 
 
 class Gamestate:
 
-    food_list = [] # list of all food objects
-    snake_list = [] # list of all snake objects
 
     def __init__(self, game, width: float, height: float, food_count: int, snake_count: int):
         self.game = game
+
+        self.food_list = [] # list of all food objects
+        self.snake_list = [] # list of all snake objects
+
         for _ in range(food_count):
             self.create_food_random(0, 0, width, height)
         for _ in range(snake_count):
@@ -209,26 +229,38 @@ class Gamestate:
 
     
 
-    def create_food(self, x: float, y: float, size: float) -> None:
-        self.food_list.append(Food(self.game, x, y, size))
+    def create_food(self, x: float, y: float, size: float, color=None) -> None:
+        if color == None:
+            color = random.choice(self.game.color_list)
+        self.food_list.append(Food(self.game, self, x, y, size, color))
 
-    def create_food_random(self, x: float, y: float, width: float, height: float, size=None) -> None:
-        new_food_pos = generate_spaced_point(self.food_list, ((x-width/2, y-height/2),(x+width/2, y+height/2)))
+    def create_food_random(self, x: float, y: float, width: float, height: float, size=None, color=None) -> None:
+        bounds = ((x-width/2, x+width/2),(y-height/2, y+height/2))
+        new_food_pos = generate_spaced_point(self.food_list, bounds)
+
         if size is None: # if no size is specified, choose a random size from the game's food_sizes list
             size = random.choice(self.game.food_sizes)
+        if color == None:
+            color = random.choice(self.game.color_list)
 
-        new_food = Food(self.game, new_food_pos[0], new_food_pos[1], size)
+        new_food = Food(self.game, self, new_food_pos[0], new_food_pos[1], size, color)
         self.food_list.append(new_food)
 
 
 
-    def create_snake(self, x: float, y: float, size: float) -> None:
-        self.snake_list.append(Snake(self.game, x, y, size))
+    def create_snake(self, x: float, y: float, size: float, color=None) -> None:
+        if color == None:
+            color = random.choice(self.game.color_list)
+        self.snake_list.append(Snake(self.game, self, x, y, size, color))
 
-    def create_snake_random(self, x: float, y: float, width: float, height: float) -> None:
-        new_snake_pos = generate_spaced_point(self.snake_list, ((x-width/2, y-height/2),(x+width/2, y+height/2)))
+    def create_snake_random(self, x: float, y: float, width: float, height: float, color=None) -> None:
+        bounds = ((x-width/2, x+width/2),(y-height/2, y+height/2))
+        new_snake_pos = generate_spaced_point(self.snake_list, bounds)
 
-        new_snake = Snake(self.game, new_snake_pos[0], new_snake_pos[1])
+        if color == None:
+            color = random.choice(self.game.color_list)
+
+        new_snake = Snake(self.game, self, new_snake_pos[0], new_snake_pos[1], color)
         self.snake_list.append(new_snake)
 
 
@@ -237,7 +269,7 @@ class Gamestate:
         for snake in self.snake_list:
             if snake == exclude_snake:
                 continue
-            for segment in snake.segments:
+            for segment in snake.segment_list:
                 if (math.hypot(x - segment[0], y - segment[1]) < snake.segment_width / 2 + radius):
                     return snake
         return None
@@ -263,7 +295,17 @@ class Gamestate:
 
         # Ensure there's always a minimum amount of food on the map
         self.ensure_min_food(self.game.food_max)
-        
+
+
+    # return functions
+
+    def get_food(self) -> list[Food]:
+        return self.food_list
+
+    def get_snakes(self) -> list[Snake]:
+        return self.snake_list
+
+
 
 
 
@@ -274,38 +316,42 @@ class Slitherio:
     death_drop_chance = 0.6 # (0-1) chance food is left behind when a snake dies
     food_sizes = [1,2,4] # distribution of random food on the ground
     food_size_death = 9 # size of food dropped when a snake dies
+    food_bonus = 50 # amount of food to drop dispite snake's length
 
     min_length = 10 # minimum length of a snake
     
-    min_segment_width = 20 # minimum width of a snake segment
-    growthrate_segment_width = 0.1 # how much the segment width grows per length
+    min_segment_width = 10 # minimum width of a snake segment
+    growthrate_segment_width = 0.005 # how much the segment width grows per length
 
-    segment_chain_multiplier = 0.2 # (0-1) how much of a segment width each segment is spaced away from the next segment in the chain
-    food_vacuum_multiplier = 2 # how much of a segment width the snake can vacuum food from
-    food_vacuum_speed_multiplier = 1.2 # how many pixels per frame the food moves towards the snake when vacuumed relitive to the snake's speed
+    segment_chain_multiplier = 0.8 # (0-1) how much of a segment width each segment is spaced away from the next segment in the chain
+    food_vacuum_multiplier = 5 # how much of a segment width the snake can vacuum food from
+    food_vacuum_speed_multiplier = 0.1 # how many pixels per frame the food moves towards the snake when vacuumed relitive to the snake's speed
 
     min_segments = 10 # minimum amount of snake segments
-    growthrate_segments = 0.25 # how many segments are added per length
+    growthrate_segments = 0.05 # how many segments are added per length
 
     min_turning_speed = 4 # minimum turning speed (degrees per frame)
-    growthrate_turning_speed = 0 # how much the turning speed grows per length
+    growthrate_turning_speed = -0.0001 # how much the turning speed grows per length
 
-    min_speed = 1 # minimumpixels per frame speed of a snake
-    growthrate_speed = 0.1 # how much the speed grows per length
+    min_speed = 2 # minimumpixels per frame speed of a snake
+    growthrate_speed = 0.001 # how much the speed grows per length
     
-    speed_sprint_multiplier = 2 # pixels per frame speed of a snake while sprinting
-    sprint_per_length = 4 # how many frames you can sprint per length used
+    sprint_multiplier = 1.5 # multiplier of a snake's speed while sprinting
+    sprint_per_length = 30 # how many frames you can sprint per length used
+
+    color_list = [(200,10,10),(10,200,10),(10,10,200),(200,200,10),(200,10,200),(10,200,200)]
 
 
 
 
-    def __init__(self, width=100, height=100, food_max=1000, player_count=10):
+    def __init__(self, width=1000, height=1000, food_max=1000, player_count=10):
         self.width = width
         self.height = height
         self.food_max = food_max
         self.player_count = player_count
 
         self.current_state = self.start_state()
+
 
 
     
@@ -315,7 +361,10 @@ class Slitherio:
 
     
     
-    def update(self, keys_pressed: list[dict[str, bool]]) -> dict:
+    def get_state(self) -> Gamestate:
+        return self.current_state
+
+    def update(self, keys_pressed: list[dict[str, bool]]) -> Gamestate:
         """
         Takes raw input (from the main file) and 
         returns the updated state.
@@ -324,6 +373,6 @@ class Slitherio:
 
         self.current_state.update(inputs=[(keys['left'], keys['right'], keys['up']) for keys in keys_pressed])
 
-        return {self.current_state}
+        return self.current_state
     
 
