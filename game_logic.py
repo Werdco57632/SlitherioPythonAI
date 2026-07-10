@@ -1,8 +1,6 @@
 import random
 import math
 
-from discord import Game
-from matplotlib.pylab import size
 
 
 
