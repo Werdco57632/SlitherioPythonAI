@@ -22,6 +22,7 @@ FPS = 60
 BACKGROUND_COLOR = (30, 30, 40)
 PLAYER_COLOR = (0, 255, 150)
 
+running = True
 while running:
     # collect Pygame inputs into dict
 
@@ -30,7 +31,6 @@ while running:
         'left': keys[pygame.K_LEFT],
         'right': keys[pygame.K_RIGHT],
         'up': keys[pygame.K_UP],
-        'down': keys[pygame.K_DOWN]
     }
 
 
