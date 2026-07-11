@@ -1,6 +1,7 @@
 import pygame
 from game_logic import Slitherio
 import AI_algorithms
+import argparse
 
 
 
@@ -147,15 +148,21 @@ PLAYER_COLOR = (0, 255, 150)
 
 
 
-# TODO make it so you can pass these as command line arguments \/
-Include_player = True # whether to let the player play using the active snake
-Render_frames = True # whether to render frames in pygame window
+
+# parse command line arguments
+parser = argparse.ArgumentParser(description="Running parameters")
+parser.add_argument('-p', '--playerless', action='store_true', help="Exclude player and just have AIs")
+parser.add_argument('-g', '--headless', action='store_true', help="Run headlessly; skip rendering (excludes player as well)")
+args = parser.parse_args()
+
+Include_player = not args.playerless # whether to let the player play using the active snake
+Render_frames = not args.headless # whether to render frames in pygame window
 Algorithm_using = AI_algorithms.Circle_bot # the AI algorythem to use
 
 
 
 
-if (Render_frames): Include_player = False # don't let the player play if not rendering
+if (not Render_frames): Include_player = False # don't let the player play if not rendering
 
 camera = Camera(SCREEN_WIDTH, SCREEN_HEIGHT, MAP_WIDTH, MAP_HEIGHT)
 
@@ -198,6 +205,10 @@ while running:
 
 
     
+    if (len(snake_list) == 1):
+        print(f"Winner: {snake_list[0]}. Exiting.")
+        running = False
+        break
 
     if (len(snake_list) == 0):
         print("All snakes are dead. Exiting.")
