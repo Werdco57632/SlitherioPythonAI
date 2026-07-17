@@ -2,6 +2,8 @@ import pygame
 from game_logic import Slitherio
 import AI_algorithms
 import argparse
+import numpy as np
+import numpy.typing as npt
 
 
 
@@ -18,7 +20,7 @@ class Camera:
         self.x = 0
         self.y = 0
 
-    def apply(self, world_coord):
+    def apply(self, world_coord) -> tuple[int, int]:
         """
         Translates a (world_x, world_y) coordinate to a (screen_x, screen_y) coordinate.
         Perfect for direct use in pygame.draw functions.
@@ -31,7 +33,7 @@ class Camera:
         
         return (int(screen_x), int(screen_y))
 
-    def update(self, target_coord, speed=1): 
+    def update(self, target_coord, speed=1) -> None: 
         """
         Moves the camera toward a target (x, y) tuple.
         'speed' controls smoothness (1.0 = instant snap, 0.1 = smooth lag/float).
@@ -57,7 +59,94 @@ class Camera:
 
 
 
-def render_frame(food_list, snake_list, camera):
+class player:
+
+    def __init__(self, player_index, game, gamestate):
+        self.player_index = player_index
+        self.game = game
+        self.gamestate = gamestate
+
+        self.algorithm = Algorithm_using(game, player_index) # create AI instance
+        self.camera = Camera(SCREEN_WIDTH, SCREEN_HEIGHT, MAP_WIDTH, MAP_HEIGHT)
+        self.alive = True
+
+        self.update_view()
+
+        
+
+    def update_view(self) -> None:
+        snake = self.gamestate.snake_list[self.player_index]
+        self.camera.update((snake.x, snake.y))
+        self.view = generate_simple_frame(SIMPLE_VIEW_WIDTH, SIMPLE_VIEW_HEIGHT, self.gamestate.food_list, self.gamestate.snake_list, self.camera)
+
+    def get_inputs(self, gamestate) -> dict[str, bool]:
+        default_return = {'left': False, 'right': False, 'up': False}
+        
+        if not self.alive:
+            return default_return
+        
+        self.gamestate = gamestate
+        if not self.gamestate.snake_list[self.player_index]:
+            self.alive = False
+            return default_return
+        
+        
+        self.update_view()
+        return self.algorithm.get_inputs(self.gamestate, self.view)
+
+
+
+
+
+def generate_simple_frame(width, height, food_list, snake_list, camera) -> npt.NDArray[np.float64]:
+    simple_frame = np.zeros((width, height), dtype=float)
+
+    pixel_width = camera.screen_width / width
+    pixel_height = camera.screen_height / height
+
+    for food in food_list:
+        pos = camera.apply((food.x, food.y))
+        x = int(pos[0] // pixel_width)
+        y = int(pos[1] // pixel_height)
+        
+        if not (0 <= x < width and 0 <= y < height): # make sure it's on screen
+            continue
+
+        size = food.size
+
+        if (simple_frame[x][y] < size):
+            simple_frame[x][y] = size/(size+10)
+
+
+
+    for snake in snake_list:
+        if not snake:
+            continue
+        
+        for i, segment in enumerate(snake.segment_list):
+            pos = camera.apply((segment))
+            x = int(pos[0] // pixel_width)
+            y = int(pos[1] // pixel_height)
+            
+            if not (0 <= x < width and 0 <= y < height): # make sure it's on screen
+                continue
+
+            size = snake.segment_width
+            if (i == 0): # make snake head 2x as heavy
+                size *= 2
+
+
+
+            if (simple_frame[x][y] < size):
+                simple_frame[x][y] = size/(size+10)
+
+
+
+    return simple_frame
+
+
+
+def render_frame(food_list, snake_list, camera) -> None:
     screen.fill(BACKGROUND_COLOR)
 
     #color_food = (255, 0, 0)
@@ -73,6 +162,9 @@ def render_frame(food_list, snake_list, camera):
 
     # Draw snakes
     for i, snake in enumerate(snake_list):
+        if not snake:
+            continue
+
         snake_color = snake.color
         if (i == 0):
             #snake_color = color_player
@@ -89,29 +181,54 @@ def render_frame(food_list, snake_list, camera):
 
     pygame.display.flip()
 
+def render_simple_frame(width, height, simple_frame, camera) -> None: # show what the AI sees
+    if simple_frame is None:
+        return
 
 
-def gather_inputs(state, player_input_data, AI_players, include_player):
+    # validate frame size
+    if (simple_frame.shape != (width, height)):
+        raise ValueError(f"can't render simple frame with shape {simple_frame.shape}, should be {(width, height)}")
+    
+    pixel_width = camera.screen_width / width
+    pixel_height = camera.screen_height / height
+    
+
+
+    screen.fill(BACKGROUND_COLOR) # fill extra space just in case
+
+    for i in range(height):
+        for j in range(width):
+            a = simple_frame[j][i]
+            pygame.draw.rect(screen, (a*255, a*255, a*255), (j*pixel_width, i*pixel_height, pixel_width, pixel_height))
+
+
+
+    pygame.display.flip()
+
+    return
+
+def gather_inputs(state, player_input_data, AI_players, include_player) -> list[dict[str, bool]]:
     
     input_data = [] # list of dictionaries containing input data for each player
 
-    for i, player in enumerate(state.snake_list):
+    for i, player in enumerate(AI_players):
         
-        if player == None: # shouldn't happen, but just in case
-            input_data.append({'left': False, 'right': False, 'up': False}) # No snake
+        if not player: # missing entry in player list
+            input_data.append({'left': True, 'right': False, 'up': False}) # NoAI snake
             continue
+        
 
-        if include_player and i == 0:
+
+        ai_input_data = AI_players[i].get_inputs(state) # always get the inputs even if unused as it updates the camera and other things
+
+        if include_player and i == 0: # user player is controlling this player
             input_data.append(player_input_data)
             continue
 
-        if not AI_players[i]:
-            input_data.append({'left': False, 'right': False, 'up': False}) # NoAI snake
-            continue
-
-        # Gather AI inputs
-        ai_input_data = AI_players[i].get_inputs(state)
         input_data.append(ai_input_data)
+
+
 
     return input_data
 
@@ -125,6 +242,9 @@ pygame.init()
 
 SCREEN_WIDTH = 800
 SCREEN_HEIGHT = 600
+
+SIMPLE_VIEW_WIDTH = 32
+SIMPLE_VIEW_HEIGHT = 24
 
 MAP_WIDTH = 2000
 MAP_HEIGHT = 2000
@@ -157,6 +277,7 @@ args = parser.parse_args()
 
 Include_player = not args.playerless # whether to let the player play using the active snake
 Render_frames = not args.headless # whether to render frames in pygame window
+simplify_graphics = False
 Algorithm_using = AI_algorithms.Circle_bot # the AI algorythem to use
 
 
@@ -164,18 +285,18 @@ Algorithm_using = AI_algorithms.Circle_bot # the AI algorythem to use
 
 if (not Render_frames): Include_player = False # don't let the player play if not rendering
 
-camera = Camera(SCREEN_WIDTH, SCREEN_HEIGHT, MAP_WIDTH, MAP_HEIGHT)
-
 Game = Slitherio(width=MAP_WIDTH, height=MAP_HEIGHT, player_count=PLAYER_COUNT)
 
 state = Game.get_state()  # get initial game state
 
 
 
-AI_players = [None] * PLAYER_COUNT
+
+
+players = [None] * PLAYER_COUNT
 
 for i in range(PLAYER_COUNT):
-    AI_players[i] = Algorithm_using(Game, i) # create AI instances
+    players[i] = player(i, Game, state)
 
 
 
@@ -187,6 +308,8 @@ while running:
     
     # collect Pygame inputs into dict
 
+    
+
     keys = pygame.key.get_pressed()
     player_input_data = {
         'left': keys[pygame.K_LEFT],
@@ -194,7 +317,7 @@ while running:
         'up': keys[pygame.K_UP],
     }
 
-    input_data = gather_inputs(state, player_input_data, AI_players, Include_player)
+    input_data = gather_inputs(state, player_input_data, players, Include_player)
 
     # calculate next frame using logic file
     state = Game.update(input_data)
@@ -204,13 +327,27 @@ while running:
 
 
 
+
+    #region exit conditions
+    remaining_players = 0
+    winner = None
+    winning_length = 0
+
+    for i, snake in enumerate(snake_list):
+        if snake:
+            remaining_players += 1
+            if remaining_players == 1:
+                winner = i
+                winning_length = snake_list[i].length
+
+
     
-    if (len(snake_list) == 1):
-        print(f"Winner: {snake_list[0]}. Exiting.")
+    if (remaining_players == 1):
+        print(f"Winner: player {winner+1} with length {winning_length}. Exiting.")
         running = False
         break
 
-    if (len(snake_list) == 0):
+    if (remaining_players == 0):
         print("All snakes are dead. Exiting.")
         running = False
         break
@@ -225,14 +362,19 @@ while running:
             print("Player closed window. Exiting.")
             running = False
             break
+    
+    #endregion
 
 
-    # render frame
-    player_pos = (snake_list[0].x, snake_list[0].y)
-    camera.update(player_pos)  # center camera on player snake
 
-    if Render_frames:
-        render_frame(food_list, snake_list, camera)
+    if Render_frames: # draw the frame on the screen
+        if (simplify_graphics):
+            render_simple_frame(SIMPLE_VIEW_WIDTH, SIMPLE_VIEW_HEIGHT, players[0].view, players[0].camera) # show AI view
+
+        else:
+            render_frame(food_list, snake_list, players[0].camera) # render everything
+        
+        #simplify_graphics = not simplify_graphics
         clock.tick(60) # wait for frame to end if drawing
 
 

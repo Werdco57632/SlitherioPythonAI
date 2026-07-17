@@ -59,6 +59,9 @@ class Food:
     def update_vacuum(self) -> None:
         
         for snake in self.state.snake_list:
+            if not snake:
+                continue
+
             # Check if the snake's head is close enough to eat this food
             head_x, head_y = snake.segment_list[0]
             d_x = head_x - self.x
@@ -208,7 +211,7 @@ class Snake:
                 random_segment = random.choice(self.segment_list)
                 self.state.create_food_random(random_segment[0], random_segment[1], segment_diameter, segment_diameter, self.game.food_size_death, color=self.color)
         
-        self.state.snake_list.remove(self)
+        self.state.snake_list = [None if n == self else n for n in self.state.snake_list] # remove snake from slot
 
 
 
@@ -267,7 +270,7 @@ class Gamestate:
 
     def snake_collision_check(self, x: float, y: float, radius: float, exclude_snake=None) -> Snake | None:
         for snake in self.snake_list:
-            if snake == exclude_snake:
+            if not snake or snake == exclude_snake:
                 continue
             for segment in snake.segment_list:
                 if (math.hypot(x - segment[0], y - segment[1]) < snake.segment_width / 2 + radius):
@@ -287,6 +290,9 @@ class Gamestate:
     def update(self, inputs: list[tuple[bool, bool, bool]]) -> None:
         # Update all snakes based on input
         for i, snake in enumerate(self.snake_list):
+            if not snake:
+                continue
+            
             snake.update_position(inputs[i][1]*90-inputs[i][0]*90, inputs[i][2]) # update_position(turn_input, sprint_input)
 
         # Update all food (for vacuuming)

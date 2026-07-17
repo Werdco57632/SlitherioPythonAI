@@ -11,7 +11,7 @@ class Circle_bot:
         self.state = None
         self.player_id = player_id
 
-    def get_inputs(self, state):
+    def get_inputs(self, state, view):
         self.state = state
         self.snake = state.snake_list[self.player_id]
 
