@@ -2,6 +2,12 @@ The entry point is slitherio\_render.py, run that to actually start the game.
 
 
 
+you need to have pygame and pytorch (torch),
+
+you can use "pip install -r requirements.txt" to get that
+
+
+
 you can set the arguments at around line 150 or use command line arguments:
 
 &#x09;-p / --playerless (make all snakes AI / no player)
