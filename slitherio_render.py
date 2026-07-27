@@ -278,7 +278,7 @@ args = parser.parse_args()
 Include_player = not args.playerless # whether to let the player play using the active snake
 Render_frames = not args.headless # whether to render frames in pygame window
 simplify_graphics = False
-Algorithm_using = AI_algorithms.Circle_bot # the AI algorythem to use
+Algorithm_using = AI_algorithms.Hunter_bot # the AI algorythem to use
 
 
 
