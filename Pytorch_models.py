@@ -49,7 +49,7 @@ class AgentCNN(nn.Module):
 
 
 class PopulationManager:
-    def __init__(self, population_size=100, save_dir="agents_checkpoint"):
+    def __init__(self, population_size=200, save_dir="agents_checkpoint"):
         self.population_size = population_size
         self.save_dir = save_dir
         os.makedirs(save_dir, exist_ok=True)

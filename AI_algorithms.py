@@ -138,6 +138,8 @@ class AStar_bot:
     WAYPOINT_REACH_DIST = 30    # how close (pixels) counts as "reached" a waypoint
     OBSTACLE_INFLATION = 1.5    # safety margin around snake bodies, in units of snake radius
     TURN_DEADZONE = 5           # degrees
+    WALL_MARGIN = 150          # start penalizing cells within this distance of a wall
+    WALL_PENALTY_WEIGHT = 50   # how strongly it discourages wall-hugging routes
 
     def __init__(self, game, player_id):
         self.game = game
@@ -145,6 +147,20 @@ class AStar_bot:
         self.player_id = player_id
         self.path = []          # list of (x, y) waypoints, world coords
         self.frames_since_plan = 0
+
+    def _wall_penalty(self, cell):
+        """Extra pathing cost for cells close to a wall -- discourages
+        hugging the boundary without forbidding it outright (food can
+        still spawn right against a wall)."""
+        x, y = self._to_world(cell)
+        half_w, half_h = self.game.width / 2, self.game.height / 2
+        dist_to_wall = min(half_w - abs(x), half_h - abs(y))
+
+        if dist_to_wall >= self.WALL_MARGIN:
+            return 0.0
+
+        dist_to_wall = max(dist_to_wall, 1.0)
+        return self.WALL_PENALTY_WEIGHT / dist_to_wall
 
     def get_inputs(self, state, view):
         self.state = state
@@ -163,8 +179,19 @@ class AStar_bot:
             self.path.pop(0)
 
         if not self.path:
-            # no food found, or fully boxed in -- just go straight
-            return {'left': False, 'right': False, 'up': False}
+            # No planned path -- either nothing to plan to, or the fresh
+            # plan's only waypoint was already within reach and got popped
+            # above. Don't just cruise straight blind; steer directly at
+            # the nearest food as a safety net instead.
+            food = self._nearest_food(head_x, head_y)
+            if food is None:
+                return {'left': False, 'right': False, 'up': False}
+
+            desired_heading = math.degrees(math.atan2(food.y - head_y, food.x - head_x)) % 360
+            heading_diff = (desired_heading - self.snake.heading + 180) % 360 - 180
+            turn_left = heading_diff < -self.TURN_DEADZONE
+            turn_right = heading_diff > self.TURN_DEADZONE
+            return {'left': turn_left, 'right': turn_right, 'up': False}
 
         target_x, target_y = self.path[0]
         desired_heading = math.degrees(math.atan2(target_y - head_y, target_x - head_x)) % 360
@@ -219,7 +246,7 @@ class AStar_bot:
     def _in_bounds(self, cell):
         x, y = self._to_world(cell)
         half_w, half_h = self.game.width / 2, self.game.height / 2
-        return -half_w < x < half_w and -half_h < y < half_h
+        return -half_w <= x <= half_w and -half_h <= y <= half_h
 
     def _a_star(self, start, goal, obstacles):
         def heuristic(a, b):
@@ -250,7 +277,7 @@ class AStar_bot:
                 if neighbor in obstacles or neighbor in visited or not self._in_bounds(neighbor):
                     continue
 
-                tentative_g = g + math.hypot(dx, dy)
+                tentative_g = g + math.hypot(dx, dy) + self._wall_penalty(neighbor)
                 if tentative_g < g_score.get(neighbor, float('inf')):
                     g_score[neighbor] = tentative_g
                     came_from[neighbor] = current
@@ -275,8 +302,8 @@ class Hunter_bot:
 
     SNAKE_DANGER_RADIUS = 150
     SNAKE_DANGER_WEIGHT = 400
-    WALL_MARGIN = 120
-    WALL_WEIGHT = 300
+    WALL_MARGIN = 250
+    WALL_WEIGHT = 1200
     TURN_DEADZONE = 5
     SPRINT_MIN_DANGER_DIST = 200
 
@@ -364,6 +391,11 @@ class Hunter_bot:
         rad = math.radians(target_snake.heading)
         predicted_x = target_snake.x + math.cos(rad) * target_snake.speed * self.LOOKAHEAD_FRAMES
         predicted_y = target_snake.y + math.sin(rad) * target_snake.speed * self.LOOKAHEAD_FRAMES
+
+        half_w = self.game.width / 2
+        half_h = self.game.height / 2
+        predicted_x = max(-half_w + 40, min(half_w - 40, predicted_x))
+        predicted_y = max(-half_h + 40, min(half_h - 40, predicted_y))
         return predicted_x, predicted_y
 
     def _nearest_food(self, head_x, head_y):

@@ -246,10 +246,10 @@ SCREEN_HEIGHT = 600
 SIMPLE_VIEW_WIDTH = 32
 SIMPLE_VIEW_HEIGHT = 24
 
-MAP_WIDTH = 2000
-MAP_HEIGHT = 2000
+MAP_WIDTH = 800
+MAP_HEIGHT = 600
 
-PLAYER_COUNT = 10
+PLAYER_COUNT = 5
 
 if hasattr(pygame.display, 'set_subplots'):
     screen = pygame.display.set_subplots()[0]
