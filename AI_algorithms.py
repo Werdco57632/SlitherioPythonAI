@@ -90,6 +90,9 @@ TURNS = (TURN_LEFT, TURN_STRAIGHT, TURN_RIGHT)
 
 NO_INPUT = {'left': False, 'right': False, 'up': False}
 
+# ---------------------------------------------------------------------------
+# Baselines
+# ---------------------------------------------------------------------------
 
 class Circle_bot:
     """Original placeholder: turns left forever. Establishes the performance floor."""
@@ -637,26 +640,6 @@ class SteeringBot:
 
     def decide(self, snake, view):
         raise NotImplementedError
-
-
-# ---------------------------------------------------------------------------
-# Baselines
-# ---------------------------------------------------------------------------
-
-class Circle_bot:
-    """Original baseline: turns left forever. Establishes the performance floor."""
-
-    name = "circle"
-
-    def __init__(self, game, player_id):
-        self.game = game
-        self.state = None
-        self.player_id = player_id
-
-    def get_inputs(self, state, view=None):
-        self.state = state
-        self.snake = state.snake_list[self.player_id]
-        return {'left': True, 'right': False, 'up': False}
 
 
 class Wall_bot(SteeringBot):
